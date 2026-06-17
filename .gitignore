@@ -1,0 +1,14 @@
+# Virtual environment — never push this
+venv/
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# Data files — too large for GitHub
+*.npy
+
+# OS files
+.DS_Store
+Thumbs.db
