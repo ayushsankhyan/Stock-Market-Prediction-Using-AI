@@ -1,5 +1,4 @@
-# app.py
-# Step 7 — Full live dashboard with 8 companies
+# app.py - Full dashboard without pandas-ta dependency
 
 import os
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
@@ -7,13 +6,37 @@ os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import pandas_ta as ta
 import numpy as np
 import tensorflow as tf
 import pickle
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+# ─────────────────────────────────────────────────────────
+# INDICATOR FUNCTIONS — pure pandas, no pandas-ta needed
+# ─────────────────────────────────────────────────────────
+def calc_sma(series, length):
+    return series.rolling(window=length).mean()
+
+def calc_ema(series, length):
+    return series.ewm(span=length, adjust=False).mean()
+
+def calc_rsi(series, length=14):
+    delta  = series.diff()
+    gain   = delta.clip(lower=0)
+    loss   = -delta.clip(upper=0)
+    avg_g  = gain.ewm(com=length - 1, min_periods=length).mean()
+    avg_l  = loss.ewm(com=length - 1, min_periods=length).mean()
+    rs     = avg_g / avg_l
+    return 100 - (100 / (1 + rs))
+
+def calc_macd(series, fast=12, slow=26, signal=9):
+    ema_fast   = series.ewm(span=fast,   adjust=False).mean()
+    ema_slow   = series.ewm(span=slow,   adjust=False).mean()
+    macd_line  = ema_fast - ema_slow
+    signal_line= macd_line.ewm(span=signal, adjust=False).mean()
+    return macd_line, signal_line
 
 # ─────────────────────────────────────────────────────────
 # PAGE CONFIG
@@ -60,30 +83,22 @@ ticker, currency, sector = COMPANIES[selected_name]
 
 st.sidebar.markdown(f"""
 **Selected:**
-- Ticker  : `{ticker}`
-- Sector  : {sector}
-- Market  : {"NSE India 🇮🇳" if ".NS" in ticker else "NASDAQ/NYSE 🇺🇸"}
-- Currency: {currency}
+- Ticker   : `{ticker}`
+- Sector   : {sector}
+- Market   : {"NSE India 🇮🇳" if ".NS" in ticker else "NASDAQ/NYSE 🇺🇸"}
+- Currency : {currency}
 """)
 
-period = st.sidebar.selectbox(
-    "📅 Chart Period",
-    options=["6mo", "1y", "2y", "5y"],
-    index=3
-)
-
+period   = st.sidebar.selectbox("📅 Chart Period",
+                                 ["6mo","1y","2y","5y"], index=3)
 show_raw = st.sidebar.checkbox("Show Raw Data Table", value=False)
 
 st.sidebar.markdown("---")
 st.sidebar.warning("⚠️ Educational project only. Not financial advice.")
-st.sidebar.info(
-    "💡 Model trained on RELIANCE.NS. "
-    "Predictions apply learned patterns "
-    "to whichever stock you select."
-)
+st.sidebar.info("💡 Model trained on RELIANCE.NS. Patterns applied to all stocks.")
 
 # ─────────────────────────────────────────────────────────
-# LOAD MODEL — only once, stays in memory
+# LOAD MODEL
 # ─────────────────────────────────────────────────────────
 @st.cache_resource
 def load_model():
@@ -95,25 +110,20 @@ def load_model():
 model, scaler = load_model()
 
 # ─────────────────────────────────────────────────────────
-# FETCH LIVE DATA — helper function with MACD fix
+# FETCH DATA
 # ─────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def fetch_data(ticker, period):
     df = yf.download(ticker, period=period, progress=False)
+    df.columns = df.columns.get_level_values(0)
+    close = df["Close"].squeeze()
 
-    # Fix MultiIndex
-    df.columns   = df.columns.get_level_values(0)
-    close_series = df["Close"].squeeze()
-
-    # Add indicators
-    df["SMA_20"] = ta.sma(close_series, length=20)
-    df["EMA_50"] = ta.ema(close_series, length=50)
-    df["RSI"]    = ta.rsi(close_series, length=14)
-
-    macd_data    = ta.macd(close_series)
-    macd_cols    = macd_data.columns.tolist()
-    df["MACD"]        = macd_data[macd_cols[0]].values
-    df["MACD_Signal"] = macd_data[macd_cols[2]].values
+    df["SMA_20"]      = calc_sma(close, 20)
+    df["EMA_50"]      = calc_ema(close, 50)
+    df["RSI"]         = calc_rsi(close, 14)
+    macd, signal      = calc_macd(close)
+    df["MACD"]        = macd
+    df["MACD_Signal"] = signal
 
     df.dropna(inplace=True)
     return df
@@ -122,7 +132,7 @@ with st.spinner(f"⏳ Fetching live data for {selected_name}..."):
     df = fetch_data(ticker, period)
 
 # ─────────────────────────────────────────────────────────
-# TOP METRICS ROW
+# TOP METRICS
 # ─────────────────────────────────────────────────────────
 current  = float(df["Close"].iloc[-1])
 previous = float(df["Close"].iloc[-2])
@@ -133,13 +143,13 @@ low_52w  = float(df["Low"].min())
 volume   = int(df["Volume"].iloc[-1])
 
 c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("🏢 Company",      selected_name.split(" ", 1)[1])
+c1.metric("🏢 Company",       selected_name.split(" ", 1)[1])
 c2.metric("💰 Current Price",
           f"{currency}{current:,.2f}",
           f"{change:+.2f} ({pct:+.2f}%)")
-c3.metric("📈 52W High",     f"{currency}{high_52w:,.2f}")
-c4.metric("📉 52W Low",      f"{currency}{low_52w:,.2f}")
-c5.metric("📊 Today Volume", f"{volume:,}")
+c3.metric("📈 52W High",      f"{currency}{high_52w:,.2f}")
+c4.metric("📉 52W Low",       f"{currency}{low_52w:,.2f}")
+c5.metric("📊 Today Volume",  f"{volume:,}")
 
 st.markdown("---")
 
@@ -165,13 +175,12 @@ st.pyplot(fig1)
 plt.close()
 
 # ─────────────────────────────────────────────────────────
-# RSI + MACD SIDE BY SIDE
+# RSI + MACD
 # ─────────────────────────────────────────────────────────
 left, right = st.columns(2)
 
 with left:
     st.subheader("📉 RSI — Momentum")
-
     rsi_now = float(df["RSI"].iloc[-1])
 
     fig2, ax2 = plt.subplots(figsize=(7, 2.8))
@@ -180,7 +189,8 @@ with left:
                 alpha=0.8, label="Overbought (70)")
     ax2.axhline(30, color="green", linestyle="--", linewidth=1.2,
                 alpha=0.8, label="Oversold (30)")
-    ax2.axhline(50, color="gray",  linestyle=":",  linewidth=0.8, alpha=0.5)
+    ax2.axhline(50, color="gray",  linestyle=":",
+                linewidth=0.8, alpha=0.5)
     ax2.fill_between(df.index, df["RSI"], 70,
                      where=(df["RSI"] >= 70), alpha=0.12, color="red")
     ax2.fill_between(df.index, df["RSI"], 30,
@@ -193,7 +203,6 @@ with left:
     st.pyplot(fig2)
     plt.close()
 
-    # Signal interpretation
     if rsi_now >= 70:
         st.error(f"🔴 RSI = {rsi_now:.1f} — Overbought. Pullback possible.")
     elif rsi_now <= 30:
@@ -207,7 +216,6 @@ with left:
 
 with right:
     st.subheader("📈 MACD — Trend")
-
     macd_now   = float(df["MACD"].iloc[-1])
     signal_now = float(df["MACD_Signal"].iloc[-1])
 
@@ -236,12 +244,8 @@ with right:
         st.success("🟢 MACD above Signal — Bullish momentum.")
     else:
         st.warning("🟡 MACD below Signal — Bearish momentum.")
-
-    st.caption(
-        f"MACD: {macd_now:.3f} | "
-        f"Signal: {signal_now:.3f} | "
-        f"Diff: {macd_now - signal_now:+.3f}"
-    )
+    st.caption(f"MACD: {macd_now:.3f} | Signal: {signal_now:.3f} | "
+               f"Diff: {macd_now - signal_now:+.3f}")
 
 # ─────────────────────────────────────────────────────────
 # AI PREDICTION
@@ -254,24 +258,19 @@ SEQ_LEN    = 60
 N_FEATURES = 6
 
 if len(df) >= SEQ_LEN:
-
-    # Get last 60 days
     last_60        = df[FEATURES].values[-SEQ_LEN:]
     last_60_scaled = scaler.transform(last_60)
     X_input        = last_60_scaled.reshape(1, SEQ_LEN, N_FEATURES)
 
-    # Predict
-    pred_scaled     = model.predict(X_input, verbose=0)
-    dummy           = np.zeros((1, N_FEATURES))
-    dummy[0, 0]     = pred_scaled[0, 0]
-    pred_price      = float(scaler.inverse_transform(dummy)[0, 0])
+    pred_scaled    = model.predict(X_input, verbose=0)
+    dummy          = np.zeros((1, N_FEATURES))
+    dummy[0, 0]    = pred_scaled[0, 0]
+    pred_price     = float(scaler.inverse_transform(dummy)[0, 0])
 
-    diff     = pred_price - current
-    diff_pct = (diff / current) * 100
+    diff      = pred_price - current
+    diff_pct  = (diff / current) * 100
     direction = "📈 UP" if pred_price > current else "📉 DOWN"
-    color     = "green" if pred_price > current else "red"
 
-    # Metrics
     p1, p2, p3, p4 = st.columns(4)
     p1.metric("Today's Close",
               f"{currency}{current:,.2f}")
@@ -281,7 +280,6 @@ if len(df) >= SEQ_LEN:
     p3.metric("Expected Direction", direction)
     p4.metric("Model Accuracy",     "98.47%")
 
-    # Prediction table + bar chart
     st.markdown("#### Today vs Tomorrow")
     t_col, b_col = st.columns(2)
 
@@ -292,54 +290,45 @@ if len(df) >= SEQ_LEN:
 | **Today Close** | {currency}{current:,.2f} |
 | **Predicted Tomorrow** | {currency}{pred_price:,.2f} |
 | **Expected Change** | {currency}{diff:+,.2f} |
-| **Expected Change %** | {diff_pct:+.2f}% |
+| **Change %** | {diff_pct:+.2f}% |
 | **Direction** | {direction} |
         """)
 
     with b_col:
         fig4, ax4 = plt.subplots(figsize=(5, 2.5))
+        colors = ["#4f8ef7",
+                  "#7ed321" if pred_price > current else "#f5a623"]
         bars = ax4.bar(
             ["Today\nClose", "Predicted\nTomorrow"],
             [current, pred_price],
-            color=["#4f8ef7",
-                   "#7ed321" if pred_price > current else "#f5a623"],
-            width=0.4,
-            edgecolor="none"
+            color=colors, width=0.4, edgecolor="none"
         )
         for bar, val in zip(bars, [current, pred_price]):
-            ax4.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() * 1.001,
-                f"{currency}{val:,.1f}",
-                ha="center", va="bottom",
-                fontsize=10, fontweight="bold"
-            )
+            ax4.text(bar.get_x() + bar.get_width() / 2,
+                     bar.get_height() * 1.001,
+                     f"{currency}{val:,.1f}",
+                     ha="center", va="bottom",
+                     fontsize=10, fontweight="bold")
         ax4.set_ylabel(f"Price ({currency})")
-        ax4.set_ylim(
-            min(current, pred_price) * 0.995,
-            max(current, pred_price) * 1.008
-        )
+        ax4.set_ylim(min(current, pred_price) * 0.995,
+                     max(current, pred_price) * 1.008)
         ax4.grid(axis="y", alpha=0.2)
         plt.tight_layout()
         st.pyplot(fig4)
         plt.close()
 
-    st.caption(
-        "⚠️ Model trained on RELIANCE.NS historical patterns. "
-        "Predictions are pattern-based — not financial advice. "
-        "Never invest based solely on AI predictions."
-    )
+    st.caption("⚠️ Pattern-based prediction. Not financial advice.")
 
 else:
-    st.warning(f"Need at least {SEQ_LEN} days of data. Select a longer period.")
+    st.warning(f"Need at least {SEQ_LEN} days of data.")
 
 # ─────────────────────────────────────────────────────────
-# ALL 8 COMPANIES SNAPSHOT TABLE
+# ALL 8 COMPANIES SNAPSHOT
 # ─────────────────────────────────────────────────────────
 st.markdown("---")
 st.subheader("🌍 All 8 Companies — Live Snapshot")
 
-with st.spinner("Fetching live prices for all 8 companies..."):
+with st.spinner("Fetching live prices..."):
     rows = []
     for name, (tick, curr, sec) in COMPANIES.items():
         try:
@@ -351,26 +340,24 @@ with st.spinner("Fetching live prices for all 8 companies..."):
                 chng   = price - prev
                 chng_p = (chng / prev) * 100
                 rows.append({
-                    "Company"   : name,
-                    "Ticker"    : tick,
-                    "Sector"    : sec,
-                    "Price"     : f"{curr}{price:,.2f}",
-                    "Change"    : f"{curr}{chng:+,.2f}",
-                    "Change %"  : f"{chng_p:+.2f}%",
-                    "Signal"    : "📈" if chng > 0 else "📉"
+                    "Company"  : name,
+                    "Ticker"   : tick,
+                    "Sector"   : sec,
+                    "Price"    : f"{curr}{price:,.2f}",
+                    "Change"   : f"{curr}{chng:+,.2f}",
+                    "Change %" : f"{chng_p:+.2f}%",
+                    "Signal"   : "📈" if chng > 0 else "📉"
                 })
         except Exception:
             pass
 
     if rows:
-        st.dataframe(
-            pd.DataFrame(rows),
-            use_container_width=True,
-            hide_index=True
-        )
+        st.dataframe(pd.DataFrame(rows),
+                     use_container_width=True,
+                     hide_index=True)
 
 # ─────────────────────────────────────────────────────────
-# RAW DATA TABLE
+# RAW DATA
 # ─────────────────────────────────────────────────────────
 if show_raw:
     st.markdown("---")
@@ -387,7 +374,7 @@ if show_raw:
 st.markdown("---")
 st.caption(
     "Built by Ayush Sankhyan · "
-    "Powered by LSTM Neural Network · "
+    "LSTM Neural Network · "
     "Live data from Yahoo Finance · "
     "Deployed on Streamlit Cloud"
 )
