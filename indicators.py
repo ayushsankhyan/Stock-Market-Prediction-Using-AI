@@ -1,5 +1,5 @@
 # indicators.py
-# Step 3 — Add technical indicators to our stock data
+# Add technical indicators to our stock data
 
 import yfinance as yf
 import pandas as pd
@@ -169,7 +169,3 @@ plt.tight_layout()
 plt.savefig("indicators_chart.png", dpi=150)
 print("✅ Chart saved as indicators_chart.png")
 
-print("\n━━━ STEP 3 COMPLETE ━━━")
-print("👉 Right-click indicators_chart.png → Open Preview")
-print("👉 You'll see 3 panels — price, RSI, MACD")
-print("👉 Ready for Step 4!")
