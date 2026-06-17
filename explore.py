@@ -1,5 +1,5 @@
 # explore.py
-# Step 2 — Download and explore real stock data
+# Download and explore real stock data
 
 import yfinance as yf
 import pandas as pd
@@ -82,6 +82,3 @@ plt.tight_layout()
 plt.savefig("price_chart.png", dpi=150)
 print("✅ Chart saved as price_chart.png")
 
-print("\n━━━ STEP 2 COMPLETE ━━━")
-print("👉 Look in your left sidebar — you'll see price_chart.png")
-print("👉 Right-click it → Open Preview to see the chart")
