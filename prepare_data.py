@@ -1,5 +1,5 @@
 # prepare_data.py
-# Step 4 — Scale data + create 60-day sliding windows for LSTM
+# Scale data + create 60-day sliding windows for LSTM
 
 import yfinance as yf
 import pandas as pd
@@ -11,7 +11,7 @@ import pickle
 print("📥 Downloading and processing data...")
 
 # ─────────────────────────────────────────────────────────
-# REBUILD THE DATASET (same fixes as Step 3)
+# REBUILD THE DATASET 
 # ─────────────────────────────────────────────────────────
 df = yf.download("RELIANCE.NS", period="5y")
 
@@ -177,8 +177,3 @@ print("✅ y_train.npy  — training target prices")
 print("✅ y_test.npy   — test target prices")
 print("✅ scaler.pkl   — the MinMaxScaler object")
 
-print(f"\n━━━ STEP 4 COMPLETE ━━━")
-print("👉 Check your VS Code sidebar — 5 new files appeared")
-print("👉 X_train.npy is your AI's study material")
-print("👉 scaler.pkl is critical — never delete it")
-print("👉 Ready for Step 5 — building and training the LSTM!")
