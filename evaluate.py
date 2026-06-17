@@ -1,5 +1,5 @@
 # evaluate.py
-# Step 6 — Test how accurate the trained model is
+# Test how accurate the trained model is
 
 import os
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
