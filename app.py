@@ -1,4 +1,4 @@
-# app.py - Full dashboard without pandas-ta dependency
+# app.py - Full dashboard
 
 import os
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
@@ -32,10 +32,10 @@ def calc_rsi(series, length=14):
     return 100 - (100 / (1 + rs))
 
 def calc_macd(series, fast=12, slow=26, signal=9):
-    ema_fast   = series.ewm(span=fast,   adjust=False).mean()
-    ema_slow   = series.ewm(span=slow,   adjust=False).mean()
-    macd_line  = ema_fast - ema_slow
-    signal_line= macd_line.ewm(span=signal, adjust=False).mean()
+    ema_fast    = series.ewm(span=fast,   adjust=False).mean()
+    ema_slow    = series.ewm(span=slow,   adjust=False).mean()
+    macd_line   = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
     return macd_line, signal_line
 
 # ─────────────────────────────────────────────────────────
@@ -110,11 +110,16 @@ def load_model():
 model, scaler = load_model()
 
 # ─────────────────────────────────────────────────────────
-# FETCH DATA
+# FETCH DATA — with retry logic built in
 # ─────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def fetch_data(ticker, period):
     df = yf.download(ticker, period=period, progress=False)
+
+    # If empty, return empty immediately — caller will handle it
+    if df.empty:
+        return df
+
     df.columns = df.columns.get_level_values(0)
     close = df["Close"].squeeze()
 
@@ -130,6 +135,22 @@ def fetch_data(ticker, period):
 
 with st.spinner(f"⏳ Fetching live data for {selected_name}..."):
     df = fetch_data(ticker, period)
+
+# ─────────────────────────────────────────────────────────
+# SAFETY CHECK — stop here if no data came back
+# ─────────────────────────────────────────────────────────
+if df.empty or len(df) < 60:
+    st.error(
+        f"⚠️ Could not fetch enough data for **{selected_name}** right now. "
+        "This usually happens when Yahoo Finance is temporarily rate-limiting "
+        "requests, or markets just opened/closed. "
+        "Please wait a few seconds and click the **Refresh** button below, "
+        "or try a different company from the sidebar."
+    )
+    if st.button("🔄 Refresh"):
+        st.cache_data.clear()
+        st.rerun()
+    st.stop()
 
 # ─────────────────────────────────────────────────────────
 # TOP METRICS
@@ -333,6 +354,8 @@ with st.spinner("Fetching live prices..."):
     for name, (tick, curr, sec) in COMPANIES.items():
         try:
             snap = yf.download(tick, period="5d", progress=False)
+            if snap.empty:
+                continue
             snap.columns = snap.columns.get_level_values(0)
             if len(snap) >= 2:
                 price  = float(snap["Close"].iloc[-1])
@@ -355,6 +378,8 @@ with st.spinner("Fetching live prices..."):
         st.dataframe(pd.DataFrame(rows),
                      use_container_width=True,
                      hide_index=True)
+    else:
+        st.info("Live snapshot temporarily unavailable. Try refreshing in a moment.")
 
 # ─────────────────────────────────────────────────────────
 # RAW DATA
